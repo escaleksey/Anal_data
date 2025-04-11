@@ -55,6 +55,35 @@ class CheckRandom():
             runs_test = runstest_1samp(binary_data)
             print(col, "Тест на случайность:", runs_test)
 
+    def check_median(self, df: pd.DataFrame):
+        """"СТАНДАРТНЫЙ МЕТОД КОТОРЫЙ МЫ УЧИЛИ НА ПАРАХ"""
+        for column in df.columns:
+            print(f"Тест методом серий относительно медиан для {column}")
+
+            # Вычисление медианы для столбца
+            median = df[column].median()
+
+            # Преобразуем данные: выше медианы -> 1, ниже медианы -> -1
+            series = np.where(df[column] > median, 1, np.where(df[column] < median, -1, 0))
+
+            # Пропускаем нули (равные медиане)
+            series = series[series != 0]
+
+            # Подсчитываем количество серий (смена знака)
+            num_series = np.sum(np.diff(series) != 0)
+
+            print(f"Медиана для {column}: {median}")
+            print(f"Количество серий для {column}: {num_series}")
+
+            # В данном случае, чтобы проверить случайность, можно сравнить количество серий с ожидаемым
+            # Примерное ожидаемое количество серий для случайного процесса
+            expected_num_series = len(series) / 2
+            print(f"Ожидаемое количество серий: {expected_num_series}")
+
+            if num_series > expected_num_series * 0.9 and num_series < expected_num_series * 1.1:
+                print(f"{column}: Данные можно считать случайными (количество серий близко к ожидаемому)")
+            else:
+                print(f"{column}: Данные не случайны (количество серий значительно отличается от ожидаемого)")
 
     def autocorr(self, df: pd.DataFrame):
         print("Тест случайности Автокорреляции")

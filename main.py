@@ -2,11 +2,9 @@ import pandas as pd
 
 import matplotlib
 matplotlib.use('TkAgg')  # или 'Qt5Agg'
+from matplotlib import pyplot as plt
 
 from utils import CheckOutliers, CheckLength, CheckRandom, Normalizer
-
-
-
 
 
 column = "X4"
@@ -19,15 +17,28 @@ cl = CheckLength()
 # co.check_quantiles(df)
 # co.check_grabbs(df)
 
-# print(cl.ci_mean(df))
-# cl.plot_mean_stability(df)
-
 cr = CheckRandom()
-print("До нормализации")
-cr.check_normal(df)
-df = Normalizer.normalize_log(df)
-print("После нормализации")
-cr.check_normal(df)
+#cr.check_median(df)
+
+#cr.check_pirs(df)
+#cr.run_test(df)
+#cr.autocorr(df)
+
+df['Y_MA'] = df['Y'].rolling(window=10, min_periods=1).mean()
+step = 1  # каждый пятый элемент, например
+plt.figure(figsize=(12, 6))
+plt.plot(df.index[::step], df['Y'][::step], label='Оригинальные данные')
+plt.plot(df.index[::step], df['Y_MA'][::step], color='red', label='Скользящее среднее')
+plt.title("Скользящее среднее для Y")
+plt.legend()
+plt.show()
+
+#
+# print("До нормализации")
+# cr.check_normal(df)
+# df = Normalizer.normalize_log(df)
+# print("После нормализации")
+# cr.check_normal(df)
 
 
 
