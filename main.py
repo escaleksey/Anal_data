@@ -3,13 +3,27 @@ import pandas as pd
 import matplotlib
 matplotlib.use('TkAgg')  # или 'Qt5Agg'
 from matplotlib import pyplot as plt
-
+import numpy as np
 from utils import CheckOutliers, CheckLength, CheckRandom, Normalizer
 
 
+from scipy.stats import chi2, norm, expon
 column = "X4"
-df = pd.read_csv("kr.csv", delimiter=";")
-df = df.iloc[:, 1:]
+
+# фиксируем сид для воспроизводимости
+np.random.seed(42)
+
+# количество строк
+n = 500
+
+# создаём DataFrame
+df = pd.DataFrame({
+    'x1': np.random.normal(loc=50, scale=4, size=n),
+    'x2': np.random.normal(loc=100.5, scale=27, size=n),
+    'x3': np.random.normal(loc=-12.4, scale=14, size=n),
+    'x4': np.random.normal(loc=23, scale=6, size=n),
+    'Y':  np.random.normal(loc=230, scale=15, size=n),
+})
  # Печать уникальных значений в Y
 co = CheckOutliers()
 cl = CheckLength()
@@ -20,19 +34,11 @@ cl = CheckLength()
 cr = CheckRandom()
 #cr.check_median(df)
 
-#cr.check_pirs(df)
+cr.check_pirs(df)
 #cr.run_test(df)
 #cr.autocorr(df)
 
-df['Y_MA'] = df['Y'].rolling(window=10, min_periods=1).mean()
-step = 1  # каждый пятый элемент, например
-plt.figure(figsize=(12, 6))
-plt.plot(df.index[::step], df['Y'][::step], label='Оригинальные данные')
-plt.plot(df.index[::step], df['Y_MA'][::step], color='red', label='Скользящее среднее')
-plt.title("Скользящее среднее для Y")
-plt.legend()
-plt.show()
-
+#cr.check_median(df)
 #
 # print("До нормализации")
 # cr.check_normal(df)

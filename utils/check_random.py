@@ -7,15 +7,73 @@ import matplotlib.pyplot as plt
 from statsmodels.sandbox.stats.runs import runstest_1samp
 from statsmodels.graphics.tsaplots import plot_acf
 
+from scipy.stats import chi2, norm, expon
+
+
 class CheckRandom():
-    def check_pirs(self, df: pd.DataFrame):
-        print("Тест случайности Манна-Кендалла ")
 
-        for col in df.columns:
-            data = df[col]
-            tau, p_value = kendalltau(np.arange(len(data)), data)
+    def check_pirs(self,
+                   df: pd.DataFrame,
+                   dist=norm,
+                   bins: int = 8,
+                   param_estimator=None):
+        """
+        Применяет χ²-тест согласия Пирсона ко всем числовым столбцам DataFrame.
 
-            print(f"{col}: Kendall's Tau: {tau}, p-value: {p_value}")
+        Параметры:
+        - df: pd.DataFrame — таблица с числовыми данными.
+        - dist — распределение из scipy.stats (по умолчанию: нормальное);
+        - bins: int — количество интервалов;
+        - param_estimator — функция: pd.Series → (loc, scale).
+            Если None — используется (mean, std).
+
+        Возвращает: DataFrame с результатами по столбцам.
+        """
+        if param_estimator is None:
+            param_estimator = lambda s: (s.mean(), s.std(ddof=0))
+
+        results = []
+
+        for col in df.select_dtypes(include=[np.number]).columns:
+            series = df[col].dropna()
+            n = len(series)
+            if n < bins:
+                print(f"⚠️ Пропущено: {col} — слишком мало данных для {bins} бинов.")
+                continue
+
+            params = param_estimator(series)
+            x = series.values
+
+            # Границы интервалов по квантилям
+            probs = np.linspace(0, 1, bins + 1)
+            edges = dist.ppf(probs, *params)
+            edges[0] = min(edges[0], x.min() - 1e-6)
+            edges[-1] = max(edges[-1], x.max() + 1e-6)
+
+            obs_counts, _ = np.histogram(x, bins=edges)
+            cdf_vals = dist.cdf(edges, *params)
+            exp_probs = np.diff(cdf_vals)
+            exp_counts = n * exp_probs
+
+            # χ²-статистика
+            chi2_stat = ((obs_counts - exp_counts) ** 2 / exp_counts).sum()
+            dfree = bins - 1 - len(params)
+            p_value = 1 - chi2.cdf(chi2_stat, dfree)
+
+            if np.any(exp_counts < 5):
+                note = "E_i < 5"
+            else:
+                note = ""
+
+            results.append({
+                'column': col,
+                'chi2_stat': round(chi2_stat, 3),
+                'p_value': round(p_value, 4),
+                'df': dfree,
+                'note': note
+            })
+
+        print(results)
 
     def build_hist(self, df: pd.DataFrame):
         # Настройка графиков
@@ -48,7 +106,7 @@ class CheckRandom():
 
         for col in df.columns:
             data = df[col]
-        # Преобразуем данные в бинарную последовательность
+            # Преобразуем данные в бинарную последовательность
             binary_data = (data > 0).astype(int)
 
             # Выполним тест на случайность
