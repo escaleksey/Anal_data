@@ -32,19 +32,8 @@ cl = CheckLength()
 # co.check_grabbs(df)
 
 cr = CheckRandom()
-#cr.check_median(df)
 
-cr.check_pirs(df)
-#cr.run_test(df)
-#cr.autocorr(df)
+from create_word import create
 
-#cr.check_median(df)
-#
-# print("До нормализации")
-# cr.check_normal(df)
-# df = Normalizer.normalize_log(df)
-# print("После нормализации")
-# cr.check_normal(df)
-
-
+create(df)
 

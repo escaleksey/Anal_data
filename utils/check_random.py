@@ -15,55 +15,60 @@ class CheckRandom():
     def check_pirs(self,
                    df: pd.DataFrame,
                    dist=norm,
-                   bins: int = 8,
+                   bins='sturges',
                    param_estimator=None):
         """
         Применяет χ²-тест согласия Пирсона ко всем числовым столбцам DataFrame.
 
         Параметры:
         - df: pd.DataFrame — таблица с числовыми данными.
-        - dist — распределение из scipy.stats (по умолчанию: нормальное);
-        - bins: int — количество интервалов;
-        - param_estimator — функция: pd.Series → (loc, scale).
-            Если None — используется (mean, std).
+        - dist — распределение из scipy.stats (по умолчанию: нормальное).
+        - bins: int или 'sturges' — число бинов или признак использования формулы Стерджеса.
+        - param_estimator — функция: pd.Series → tuple(params). Если None, используется (mean, std).
 
-        Возвращает: DataFrame с результатами по столбцам.
+        Возвращает DataFrame с результатами по столбцам.
         """
         if param_estimator is None:
             param_estimator = lambda s: (s.mean(), s.std(ddof=0))
 
         results = []
-
         for col in df.select_dtypes(include=[np.number]).columns:
             series = df[col].dropna()
             n = len(series)
-            if n < bins:
-                print(f"⚠️ Пропущено: {col} — слишком мало данных для {bins} бинов.")
+            if n == 0:
                 continue
 
+            # Оценка параметров
             params = param_estimator(series)
             x = series.values
 
-            # Границы интервалов по квантилям
-            probs = np.linspace(0, 1, bins + 1)
-            edges = dist.ppf(probs, *params)
-            edges[0] = min(edges[0], x.min() - 1e-6)
-            edges[-1] = max(edges[-1], x.max() + 1e-6)
+            # Выбор бинов
+            if bins == 'sturges':
+                k = 1 + 3.32 * np.log10(n)
+                delta = (x.max() - x.min()) / k
+                # Построение границ от min до max с шагом delta
+                edges = np.arange(x.min(), x.max() + delta, delta)
+            else:
+                k = int(bins)
+                probs = np.linspace(0, 1, k + 1)
+                edges = dist.ppf(probs, *params)
+                edges[0] = min(edges[0], x.min() - 1e-6)
+                edges[-1] = max(edges[-1], x.max() + 1e-6)
 
+            # Наблюдаемые частоты
             obs_counts, _ = np.histogram(x, bins=edges)
+            # Ожидаемые частоты
             cdf_vals = dist.cdf(edges, *params)
-            exp_probs = np.diff(cdf_vals)
-            exp_counts = n * exp_probs
+            exp_counts = n * np.diff(cdf_vals)
 
-            # χ²-статистика
+            # Статистика χ²
             chi2_stat = ((obs_counts - exp_counts) ** 2 / exp_counts).sum()
-            dfree = bins - 1 - len(params)
+            dfree = len(edges) - 1 - len(params)
             p_value = 1 - chi2.cdf(chi2_stat, dfree)
 
+            note = ''
             if np.any(exp_counts < 5):
-                note = "E_i < 5"
-            else:
-                note = ""
+                note = 'E_i < 5'
 
             results.append({
                 'column': col,
@@ -72,33 +77,31 @@ class CheckRandom():
                 'df': dfree,
                 'note': note
             })
+        return pd.DataFrame(results)
 
-        print(results)
-
-    def build_hist(self, df: pd.DataFrame):
-        # Настройка графиков
-        # Настройка графиков
-        plt.figure(figsize=(15, 5))
-
-        # Проходим по каждому столбцу DataFrame и строим гистограмму и график нормального распределения
-        for i, column in enumerate(df.columns, 1):
-            plt.subplot(1, len(df.columns), i)  # Разбиваем на несколько подграфиков
-            sns.histplot(df[column], kde=True, stat='density')  # Строим гистограмму с KDE (нормированная плотность)
-
-            # Вычисляем параметры нормального распределения для данных
-            mu, std = norm.fit(df[column])
-
-            # Строим график нормального распределения
-            xmin, xmax = plt.xlim()  # Получаем пределы оси x
+    def build_hist(self, df: pd.DataFrame, filename: str = "histograms.png"):
+        """
+        Строит вертикально расположенные гистограммы с наложенной кривой
+        нормального распределения для всех числовых столбцов DataFrame
+        и сохраняет результат в один файл.
+        """
+        num_cols = len(df.select_dtypes(include=[np.number]).columns)
+        cols = df.select_dtypes(include=[np.number]).columns
+        # Создаём фигуру с num_cols подграфиками в один столбец
+        fig, axes = plt.subplots(num_cols, 1, figsize=(8, 4 * num_cols), constrained_layout=True)
+        if num_cols == 1:
+            axes = [axes]
+        for ax, col in zip(axes, cols):
+            data = df[col].dropna()
+            sns.histplot(data, kde=False, stat='density', ax=ax)
+            mu, std = norm.fit(data)
+            xmin, xmax = ax.get_xlim()
             x = np.linspace(xmin, xmax, 100)
             p = norm.pdf(x, mu, std)
-            plt.plot(x, p, 'k', linewidth=2)  # Кривая нормального распределения
-
-            # Добавляем заголовок
-            plt.title(f'Гистограмма {column}')
-
-        plt.tight_layout()  # Подгоняем расположение графиков
-        plt.show()
+            ax.plot(x, p, linewidth=2)
+            ax.set_title(col)
+        fig.savefig(filename)
+        plt.close(fig)
 
     def run_test(self, df: pd.DataFrame):
 
@@ -113,35 +116,38 @@ class CheckRandom():
             runs_test = runstest_1samp(binary_data)
             print(col, "Тест на случайность:", runs_test)
 
-    def check_median(self, df: pd.DataFrame):
-        """"СТАНДАРТНЫЙ МЕТОД КОТОРЫЙ МЫ УЧИЛИ НА ПАРАХ"""
-        for column in df.columns:
-            print(f"Тест методом серий относительно медиан для {column}")
+    def check_median(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Тест на случайность методом серий относительно медианы.
+        Возвращает DataFrame с колонками:
+          column, median, num_runs, expected_runs, conclusion
+        """
+        results = []
+        for col in df.select_dtypes(include=[np.number]).columns:
+            s = df[col].dropna()
+            if s.empty:
+                continue
 
-            # Вычисление медианы для столбца
-            median = df[column].median()
+            m = s.median()
+            runs = np.where(s > m, 1, np.where(s < m, -1, 0))
+            runs = runs[runs != 0]
+            # число серий — сколько раз знак меняется +1
+            num_runs = int(np.sum(np.diff(runs) != 0) + 1)
+            # ожидаемое число серий для случайного ряда
+            expected_runs = (2 * len(runs) - 1) / 3
+            conclusion = ('случайны'
+                          if abs(num_runs - expected_runs) <= 0.1 * expected_runs
+                          else 'не случайны')
 
-            # Преобразуем данные: выше медианы -> 1, ниже медианы -> -1
-            series = np.where(df[column] > median, 1, np.where(df[column] < median, -1, 0))
+            results.append({
+                'column': col,
+                'median': float(m),
+                'num_runs': num_runs,
+                'expected_runs': round(expected_runs, 2),
+                'conclusion': conclusion
+            })
 
-            # Пропускаем нули (равные медиане)
-            series = series[series != 0]
-
-            # Подсчитываем количество серий (смена знака)
-            num_series = np.sum(np.diff(series) != 0)
-
-            print(f"Медиана для {column}: {median}")
-            print(f"Количество серий для {column}: {num_series}")
-
-            # В данном случае, чтобы проверить случайность, можно сравнить количество серий с ожидаемым
-            # Примерное ожидаемое количество серий для случайного процесса
-            expected_num_series = len(series) / 2
-            print(f"Ожидаемое количество серий: {expected_num_series}")
-
-            if num_series > expected_num_series * 0.9 and num_series < expected_num_series * 1.1:
-                print(f"{column}: Данные можно считать случайными (количество серий близко к ожидаемому)")
-            else:
-                print(f"{column}: Данные не случайны (количество серий значительно отличается от ожидаемого)")
+        return pd.DataFrame(results)
 
     def autocorr(self, df: pd.DataFrame):
         print("Тест случайности Автокорреляции")
