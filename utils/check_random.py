@@ -120,7 +120,7 @@ class CheckRandom():
         """
         Тест на случайность методом серий относительно медианы.
         Возвращает DataFrame с колонками:
-          column, median, num_runs, expected_runs, conclusion
+          column, median, num_runs, expected_runs, max_run_length, conclusion
         """
         results = []
         for col in df.select_dtypes(include=[np.number]).columns:
@@ -131,19 +131,31 @@ class CheckRandom():
             m = s.median()
             runs = np.where(s > m, 1, np.where(s < m, -1, 0))
             runs = runs[runs != 0]
+
             # число серий — сколько раз знак меняется +1
             num_runs = int(np.sum(np.diff(runs) != 0) + 1)
-            # ожидаемое число серий для случайного ряда
-            expected_runs = (2 * len(runs) - 1) / 3
-            conclusion = ('случайны'
-                          if abs(num_runs - expected_runs) <= 0.1 * expected_runs
-                          else 'не случайны')
 
+            # длина максимальной серии
+            max_run_length = 1
+            current_length = 1
+            for i in range(1, len(runs)):
+                if runs[i] == runs[i - 1]:
+                    current_length += 1
+                    max_run_length = max(max_run_length, current_length)
+                else:
+                    current_length = 1
+
+            # ожидаемое число серий для случайного ряда
+            expected_runs = np.floor(0.5 * (len(s) + 1) - 1.96 * np.sqrt(num_runs - 1))
+            b = np.floor(3.3*np.log(len(s)) + 1)
+            conclusion = ('случайны' if num_runs > expected_runs and b > max_run_length else 'не случайны')
             results.append({
                 'column': col,
                 'median': float(m),
                 'num_runs': num_runs,
                 'expected_runs': round(expected_runs, 2),
+                "b crit": b,
+                'max_run_length': max_run_length,
                 'conclusion': conclusion
             })
 
