@@ -5,8 +5,8 @@ from scipy.cluster.hierarchy import linkage, dendrogram, fcluster
 import matplotlib.pyplot as plt
 
 # 1. Чтение данных
-df = pd.read_csv("kr2.csv", delimiter=";")
-X = df[['№ периода', 'Стоимость товара (у.е.)', 'Расходы на рекламу (тыс. у.е.)', 'Расходы на транспорт (тыс. у.е.)', 'Расходы на обучение (тыс. у.е.)', 'Объем продаж (тыс. шт.)']]
+df = pd.read_csv("kr2.csv")
+X = df[['x1', 'x2', 'x3', 'x4', 'Y']]
 
 # 2. Масштабирование (важно!)
 scaler = StandardScaler()
