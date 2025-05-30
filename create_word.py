@@ -5,6 +5,7 @@ from docx.shared import Inches
 import pandas as pd
 import numpy as np
 from scipy.stats import chi2
+from utils import CheckCorell
 
 def export_pirs_report(pirs_res: pd.DataFrame, doc: Document):
     """
@@ -105,6 +106,70 @@ def export_grabbs_report(grabbs_res: pd.DataFrame, doc: Document):
             doc.add_paragraph(f"Обнаруженный выброс: {row['outlier_value']}")
         doc.add_paragraph(f"Вывод: {row['conclusion']}", style='Quote')
         doc.add_paragraph()
+def export_correlation_report(corr_matrix: pd.DataFrame, r2_matrix: pd.DataFrame,
+                              t_matrix: pd.DataFrame, significance_matrix: pd.DataFrame,
+                              doc: Document, alpha: float = 0.05):
+    """
+    Добавляет в doc главу с анализом корреляции между числовыми признаками.
+    """
+
+    def add_matrix_table(title: str, matrix: pd.DataFrame, formatter=str):
+        doc.add_heading(title, level=2)
+        table = doc.add_table(rows=1 + len(matrix), cols=1 + len(matrix.columns))
+        table.style = 'Table Grid'
+
+        # Заголовки
+        hdr_cells = table.rows[0].cells
+        hdr_cells[0].text = ""
+        for j, col in enumerate(matrix.columns):
+            hdr_cells[j + 1].text = str(col)
+
+        # Данные
+        for i, row_name in enumerate(matrix.index):
+            row_cells = table.rows[i + 1].cells
+            row_cells[0].text = str(row_name)
+            for j, col in enumerate(matrix.columns):
+                val = matrix.loc[row_name, col]
+                row_cells[j + 1].text = formatter(val)
+
+    doc.add_heading("Глава 6. Анализ корреляции между числовыми признаками", level=1)
+
+    add_matrix_table("Матрица коэффициентов корреляции (r):", corr_matrix,
+                     lambda v: f"{v:.3f}")
+    add_matrix_table("Матрица детерминации (R²):", r2_matrix,
+                     lambda v: f"{v:.3f}")
+    add_matrix_table("Матрица t-статистик:", t_matrix,
+                     lambda v: f"{v:.3f}")
+    add_matrix_table(f"Матрица значимости (t_op > t_critical, α = {alpha}):",
+                     significance_matrix, lambda v: "ЗН" if v else "НЗ")
+
+
+
+
+def export_regression_report(models: dict, doc: Document):
+    """
+    Добавляет в doc главу с результатами построения и анализа регрессионных моделей.
+    models: словарь с параметрами моделей, ключ — (X, Y), значения — dict с параметрами ('k', 'b', 'σ_ост', 'η²', 'TSS', 'ESS', 'RSS')
+    """
+    doc.add_heading("Глава 7. Анализ качества моделей линейной регрессии", level=1)
+
+    for (x_col, y_col), params in models.items():
+        doc.add_heading(f"Модель: {y_col} = k * {x_col} + b", level=2)
+        doc.add_paragraph(f"Коэффициент наклона (k): {params['k']:.4f}")
+        doc.add_paragraph(f"Свободный член (b): {params['b']:.4f}")
+        doc.add_paragraph(f"Среднеквадратичное отклонение остатков (σ_ост): {params['σ_ост']:.4f}")
+        doc.add_paragraph(f"Коэффициент детерминации (η²): {params['η²']:.4f}")
+        doc.add_paragraph(f"Полная сумма квадратов (TSS): {params['TSS']:.4f}")
+        doc.add_paragraph(f"Объяснённая сумма квадратов (ESS): {params['ESS']:.4f}")
+        doc.add_paragraph(f"Остаточная сумма квадратов (RSS): {params['RSS']:.4f}")
+
+        tss = params['TSS']
+        ess = params['ESS']
+        rss = params['RSS']
+        check = "Да" if np.isclose(tss, ess + rss, atol=1e-4) else "Нет"
+        doc.add_paragraph(f"Проверка: TSS ≈ ESS + RSS → {tss:.4f} ≈ {ess + rss:.4f} → Корректность: {check}")
+        doc.add_paragraph()
+
 
 def create(df):
 
@@ -120,12 +185,19 @@ def create(df):
     out = co.check_quantiles(df)
     out2 = co.check_sigmas(df)
     out3 = co.check_grabbs(df)
+
+    # Корреляционный анализ
+    corr_matrix, r2_matrix, t_matrix, significance_matrix = CheckCorell.check_correlation(df)
+    models = CheckCorell.build_regression_models(df, significance_matrix)
     export_pirs_report(pirs_df, doc)
     export_median_report(median_df, doc)
     export_histograms_report(doc)
     export_outliers_report(out, doc)
     export_sigmas_report(out2, doc)
     export_grabbs_report(out3, doc)
+
+    export_correlation_report(corr_matrix, r2_matrix, t_matrix, significance_matrix, doc)
+    export_regression_report(models, doc)
     # Сохраняем
     doc.save("stat_report.docx")
     print("Отчёт сохранён в stat_report.docx")
