@@ -5,7 +5,9 @@ from docx.shared import Inches
 import pandas as pd
 import numpy as np
 from scipy.stats import chi2
-from utils import CheckCorell
+from utils import CheckCorell, k_means_clustering, assign_clusters
+from docx.enum.table import WD_TABLE_ALIGNMENT
+
 
 def export_pirs_report(pirs_res: pd.DataFrame, doc: Document):
     """
@@ -153,8 +155,8 @@ def export_regression_report(models: dict, doc: Document):
     """
     doc.add_heading("Глава 7. Анализ качества моделей линейной регрессии", level=1)
 
-    for (x_col, y_col), params in models.items():
-        doc.add_heading(f"Модель: {y_col} = k * {x_col} + b", level=2)
+    for (x_col), params in models.items():
+        doc.add_heading(f"Модель: y = k * {x_col} + b", level=2)
         doc.add_paragraph(f"Коэффициент наклона (k): {params['k']:.4f}")
         doc.add_paragraph(f"Свободный член (b): {params['b']:.4f}")
         doc.add_paragraph(f"Среднеквадратичное отклонение остатков (σ_ост): {params['σ_ост']:.4f}")
@@ -169,6 +171,154 @@ def export_regression_report(models: dict, doc: Document):
         check = "Да" if np.isclose(tss, ess + rss, atol=1e-4) else "Нет"
         doc.add_paragraph(f"Проверка: TSS ≈ ESS + RSS → {tss:.4f} ≈ {ess + rss:.4f} → Корректность: {check}")
         doc.add_paragraph()
+
+
+def export_clustering_report(report_data: dict, doc: Document):
+    """
+    Добавляет в doc главу с результатами кластеризации (локоть, силуэт, кластеры).
+    cluster_results: словарь с ключами:
+        - 'elbow_plot': путь к изображению локтя
+        - 'silhouette_plot': путь к изображению силуэта
+        - 'best_k': оптимальное k
+        - 'cluster_stats': список словарей по каждому кластеру с {'count', 'means'}
+    """
+
+    metrics_image_path = "clustering_metrics.png"
+    doc.add_heading("Глава 8. Кластеризация методом k-средних", level=1)
+
+    doc.add_paragraph(
+        "Метод k-средних применяется для разделения объектов на группы (кластеры) на основании схожести значений признаков. "
+        "Для определения оптимального числа кластеров используются два основных показателя: инерция (метод локтя) и коэффициент силуэта.")
+
+    # Вставляем график
+    doc.add_heading("Методы выбора количества кластеров", level=2)
+    doc.add_picture(metrics_image_path, width=Inches(6))
+    doc.add_paragraph(
+        "Слева — график метода локтя: инерция (сумма квадратов расстояний до центроидов) уменьшается при увеличении k. "
+        "Излом на графике указывает на оптимальное число кластеров.\n"
+        "Справа — коэффициент силуэта, который показывает, насколько хорошо объекты соответствуют своему кластеру по сравнению с соседними. "
+        "Чем выше значение, тем качественнее кластеризация."
+    )
+
+    # Определяем лучшее k
+    # Жестко задаём оптимальное k = 13
+    fixed_k = 13
+    best_result = None
+    for res in report_data:
+        if res['k'] == fixed_k:
+            best_result = res
+            break
+
+    if best_result is None:
+        doc.add_paragraph(f"Оптимальное число кластеров k={fixed_k} не найдено в данных.")
+        return
+
+    doc.add_heading(f"Оптимальное число кластеров: {fixed_k}", level=2)
+    doc.add_paragraph(
+        f"Значение коэффициента силуэта для k={fixed_k}: {best_result['silhouette']:.3f}."
+    )
+
+    # Перебираем все кластеры
+    for cluster in best_result['clusters']:
+        doc.add_heading(f"Кластер {cluster['cluster']} — {cluster['count']} объектов", level=3)
+        for key, val in cluster['mean_values'].items():
+            doc.add_paragraph(f"{key}: {val}", style='List Bullet')
+
+
+
+def export_multiple_regression_report(model_params: dict, x1_col: str, x2_col: str, y_col: str, doc):
+    """
+    Экспорт отчёта по одной модели множественной регрессии.
+
+    model_params: dict - словарь с параметрами модели (k1, k2, b, σ_ост и т.д.)
+    x1_col, x2_col, y_col: str - имена колонок, чтобы красиво оформить отчет
+    doc: Document - объект docx для записи
+    """
+
+    doc.add_heading("Глава 7.1. Анализ качества модели множественной линейной регрессии", level=1)
+
+    doc.add_heading(
+        f"Модель: {y_col} = {model_params['k1']:.4f} * {x1_col} + {model_params['k2']:.4f} * {x2_col} + {model_params['b']:.4f}",
+        level=2
+    )
+    doc.add_paragraph(f"Коэффициент при {x1_col} (k1): {model_params['k1']:.4f}")
+    doc.add_paragraph(f"Коэффициент при {x2_col} (k2): {model_params['k2']:.4f}")
+    doc.add_paragraph(f"Свободный член (b): {model_params['b']:.4f}")
+    doc.add_paragraph(f"Среднеквадратичное отклонение остатков (σ_ост): {model_params['σ_ост']:.4f}")
+    doc.add_paragraph(f"Коэффициент детерминации (η²): {model_params['η²']:.4f}")
+    doc.add_paragraph(f"Полная сумма квадратов (TSS): {model_params['TSS']:.4f}")
+    doc.add_paragraph(f"Объяснённая сумма квадратов (ESS): {model_params['ESS']:.4f}")
+    doc.add_paragraph(f"Остаточная сумма квадратов (RSS): {model_params['RSS']:.4f}")
+
+    tss = model_params['TSS']
+    ess = model_params['ESS']
+    rss = model_params['RSS']
+    check = "Да" if np.isclose(tss, ess + rss, atol=1e-4) else "Нет"
+    doc.add_paragraph(f"Проверка: TSS ≈ ESS + RSS → {tss:.4f} ≈ {ess + rss:.4f} → Корректность: {check}")
+    doc.add_paragraph()
+
+
+from docx.shared import Pt
+from docx.enum.table import WD_TABLE_ALIGNMENT
+
+def export_correlation_by_clusters(df_with_clusters: pd.DataFrame, doc: Document, alpha: float = 0.05):
+    summary = []  # сюда собираем данные для итоговой таблицы
+
+    for cluster in sorted(df_with_clusters['cluster'].unique()):
+        cluster_df = df_with_clusters[df_with_clusters['cluster'] == cluster].drop(columns=['cluster'])
+
+        cluster_size = len(cluster_df)  # размер кластера
+
+        doc.add_heading(f"Глава 9.{cluster + 1}. Корреляционный анализ: кластер {cluster}", level=1)
+
+        corr_matrix, r2_matrix, t_matrix, significance_matrix = CheckCorell.check_correlation(cluster_df, alpha)
+        export_correlation_report(corr_matrix, r2_matrix, t_matrix, significance_matrix, doc, alpha)
+        z = CheckCorell.select_features_for_y(cluster_df, "Y", significance_matrix)
+
+        eta2 = None
+        sigma_ost = None
+
+        if len(z) == 2:
+            models = CheckCorell.build_multiple_regression_model(cluster_df, z[0], z[1], 'Y')
+            export_multiple_regression_report(models, z[0], z[1], "Y", doc)
+
+            eta2 = models.get('η²') if 'η²' in models else None
+            sigma_ost = models.get('σ_ост') if 'σ_ост' in models else None
+
+        else:
+            models = CheckCorell.build_regression_models(cluster_df, significance_matrix, "Y")
+            export_regression_report(models, doc)
+
+            if models:
+                first_key = next(iter(models))
+                eta2 = models[first_key].get('η²')
+                sigma_ost = models[first_key].get('σ_ост')
+
+        summary.append({
+            'cluster': cluster,
+            'size': cluster_size,
+            'η²': eta2,
+            'σ_ост': sigma_ost
+        })
+
+    # Итоговая таблица с размером кластера
+    doc.add_heading("Итоговая таблица по кластерам: размер, точность модели и σ_ост", level=1)
+
+    table = doc.add_table(rows=1, cols=4)
+    table.style = 'Light List Accent 1'
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    hdr_cells = table.rows[0].cells
+    hdr_cells[0].text = 'Номер кластера'
+    hdr_cells[1].text = 'Размер кластера'
+    hdr_cells[2].text = 'Коэффициент детерминации (η²)'
+    hdr_cells[3].text = 'Среднеквадратичное отклонение остатков (σ_ост)'
+
+    for row_data in summary:
+        row_cells = table.add_row().cells
+        row_cells[0].text = str(row_data['cluster'] + 1)
+        row_cells[1].text = str(row_data['size'])
+        row_cells[2].text = f"{row_data['η²']:.4f}" if row_data['η²'] is not None else "—"
+        row_cells[3].text = f"{row_data['σ_ост']:.4f}" if row_data['σ_ост'] is not None else "—"
 
 
 def create(df):
@@ -188,7 +338,7 @@ def create(df):
 
     # Корреляционный анализ
     corr_matrix, r2_matrix, t_matrix, significance_matrix = CheckCorell.check_correlation(df)
-    models = CheckCorell.build_regression_models(df, significance_matrix)
+    models = CheckCorell.build_regression_models(df, significance_matrix, "Y")
     export_pirs_report(pirs_df, doc)
     export_median_report(median_df, doc)
     export_histograms_report(doc)
@@ -198,6 +348,12 @@ def create(df):
 
     export_correlation_report(corr_matrix, r2_matrix, t_matrix, significance_matrix, doc)
     export_regression_report(models, doc)
+
+    clusters_res = k_means_clustering(df, [i for i in range(2, 15)])
+    export_clustering_report(clusters_res, doc)
+
+    df_clustered = assign_clusters(df, k=13)
+    export_correlation_by_clusters(df_clustered, doc)
     # Сохраняем
     doc.save("stat_report.docx")
     print("Отчёт сохранён в stat_report.docx")

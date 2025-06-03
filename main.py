@@ -27,12 +27,11 @@ cl = CheckLength()
 
 cr = CheckRandom()
 
-res = CheckCorell().check_correlation(df)
-res2 = CheckCorell().build_regression_models(df, res[-1])
+#res = CheckCorell().check_correlation(df)
+#res2 = CheckCorell().build_regression_models(df, res[-1])
 from create_word import create
 
 create(df)
 
-#k_means_clustering(df, 4)
 
 
