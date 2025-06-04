@@ -168,6 +168,68 @@ class CheckCorell():
             return None
 
     @staticmethod
+    def build_multiple_regression_model_3x(df, x1_col, x2_col, x3_col, y_col, verbose=True):
+        """
+        Строит множественную линейную регрессию по трём признакам:
+        y = k1*x1 + k2*x2 + k3*x3 + b
+
+        :param df: DataFrame с данными
+        :param x1_col, x2_col, x3_col: имена колонок с признаками
+        :param y_col: имя колонки с зависимой переменной
+        :param verbose: выводить подробный отчет в консоль
+        :return: dict с коэффициентами и метриками или None при ошибке
+        """
+        x1 = df[x1_col].astype(float).values
+        x2 = df[x2_col].astype(float).values
+        x3 = df[x3_col].astype(float).values
+        y = df[y_col].astype(float).values
+
+        n = len(y)
+        m = 4  # 3 коэффициента + свободный член
+
+        # Формируем матрицу X с добавленным столбцом единиц для свободного члена
+        X = np.column_stack((x1, x2, x3, np.ones(n)))
+
+        try:
+            coef = np.linalg.lstsq(X, y, rcond=None)[0]
+            k1, k2, k3, b = coef
+
+            y_pred = X @ coef
+            y_mean = np.mean(y)
+
+            RSS = np.sum((y - y_pred) ** 2)  # остаточная сумма квадратов
+            TSS = np.sum((y - y_mean) ** 2)  # общая сумма квадратов
+            ESS = np.sum((y_pred - y_mean) ** 2)  # объяснённая сумма квадратов
+
+            sigma_ost = np.sqrt(RSS / (n - m))  # среднеквадратичная ошибка остатков
+            sigma_y = np.std(y, ddof=1)
+            eta2 = 1 - (sigma_ost ** 2) / (sigma_y ** 2)  # коэффициент детерминации по остатку
+
+            if verbose:
+                print(f"Модель: {y_col} = {k1:.4f}*{x1_col} + {k2:.4f}*{x2_col} + {k3:.4f}*{x3_col} + {b:.4f}")
+                print(f"  σ_ост = {sigma_ost:.4f}, η² = {eta2:.4f}")
+                print(f"  TSS = {TSS:.4f}, ESS = {ESS:.4f}, RSS = {RSS:.4f}")
+                print(f"  Проверка: TSS ≈ ESS + RSS → {TSS:.4f} ≈ {(ESS + RSS):.4f}")
+                print("-" * 60)
+
+            return {
+                'k1': k1,
+                'k2': k2,
+                'k3': k3,
+                'b': b,
+                'σ_ост': sigma_ost,
+                'η²': eta2,
+                'TSS': TSS,
+                'ESS': ESS,
+                'RSS': RSS
+            }
+
+        except np.linalg.LinAlgError:
+            print("Ошибка: Система вырождена или плохо обусловлена.")
+            return None
+
+
+    @staticmethod
     def select_features_for_y(df, y_col, significance_matrix):
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         candidate_features = [col for col in numeric_cols if col != y_col and significance_matrix.at[col, y_col]]

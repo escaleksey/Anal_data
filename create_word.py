@@ -5,7 +5,7 @@ from docx.shared import Inches
 import pandas as pd
 import numpy as np
 from scipy.stats import chi2
-from utils import CheckCorell, k_means_clustering, assign_clusters
+from utils import CheckCorell, k_means_clustering, assign_clusters, Autocorrel
 from docx.enum.table import WD_TABLE_ALIGNMENT
 
 
@@ -108,6 +108,7 @@ def export_grabbs_report(grabbs_res: pd.DataFrame, doc: Document):
             doc.add_paragraph(f"Обнаруженный выброс: {row['outlier_value']}")
         doc.add_paragraph(f"Вывод: {row['conclusion']}", style='Quote')
         doc.add_paragraph()
+
 def export_correlation_report(corr_matrix: pd.DataFrame, r2_matrix: pd.DataFrame,
                               t_matrix: pd.DataFrame, significance_matrix: pd.DataFrame,
                               doc: Document, alpha: float = 0.05):
@@ -257,6 +258,43 @@ def export_multiple_regression_report(model_params: dict, x1_col: str, x2_col: s
     doc.add_paragraph(f"Проверка: TSS ≈ ESS + RSS → {tss:.4f} ≈ {ess + rss:.4f} → Корректность: {check}")
     doc.add_paragraph()
 
+def export_multiple_regression_report_3x(model_params: dict, x1_col: str, x2_col: str, x3_col: str, y_col: str, doc):
+    """
+    Экспорт отчёта по модели множественной линейной регрессии с тремя признаками.
+
+    model_params: dict - словарь с параметрами модели (k1, k2, k3, b, σ_ост и т.д.)
+    x1_col, x2_col, x3_col, y_col: str - имена колонок для оформления отчёта
+    doc: Document - объект python-docx для записи отчёта
+    """
+
+    doc.add_heading("Глава 7.1. Анализ качества модели множественной линейной регрессии", level=1)
+
+    doc.add_heading(
+        f"Модель: {y_col} = "
+        f"{model_params['k1']:.4f} * {x1_col} + "
+        f"{model_params['k2']:.4f} * {x2_col} + "
+        f"{model_params['k3']:.4f} * {x3_col} + "
+        f"{model_params['b']:.4f}",
+        level=2
+    )
+    doc.add_paragraph(f"Коэффициент при {x1_col} (k1): {model_params['k1']:.4f}")
+    doc.add_paragraph(f"Коэффициент при {x2_col} (k2): {model_params['k2']:.4f}")
+    doc.add_paragraph(f"Коэффициент при {x3_col} (k3): {model_params['k3']:.4f}")
+    doc.add_paragraph(f"Свободный член (b): {model_params['b']:.4f}")
+    doc.add_paragraph(f"Среднеквадратичное отклонение остатков (σ_ост): {model_params['σ_ост']:.4f}")
+    doc.add_paragraph(f"Коэффициент детерминации (η²): {model_params['η²']:.4f}")
+    doc.add_paragraph(f"Полная сумма квадратов (TSS): {model_params['TSS']:.4f}")
+    doc.add_paragraph(f"Объяснённая сумма квадратов (ESS): {model_params['ESS']:.4f}")
+    doc.add_paragraph(f"Остаточная сумма квадратов (RSS): {model_params['RSS']:.4f}")
+
+    tss = model_params['TSS']
+    ess = model_params['ESS']
+    rss = model_params['RSS']
+    check = "Да" if np.isclose(tss, ess + rss, atol=1e-4) else "Нет"
+    doc.add_paragraph(f"Проверка: TSS ≈ ESS + RSS → {tss:.4f} ≈ {ess + rss:.4f} → Корректность: {check}")
+    doc.add_paragraph()
+
+
 
 from docx.shared import Pt
 from docx.enum.table import WD_TABLE_ALIGNMENT
@@ -321,6 +359,42 @@ def export_correlation_by_clusters(df_with_clusters: pd.DataFrame, doc: Document
         row_cells[3].text = f"{row_data['σ_ост']:.4f}" if row_data['σ_ост'] is not None else "—"
 
 
+
+def export_lags_report(corr_df: pd.DataFrame, r2_df: pd.DataFrame, significance_df: pd.DataFrame, doc: Document):
+    """
+    Экспортирует автокорреляции (r), R² и значимость в виде таблицы для каждого X.
+    """
+    doc.add_heading("Глава 10. Анализ автокорреляции по лагам", level=1)
+
+    for x_var in corr_df.index:
+        doc.add_heading(f"Переменная: {x_var}", level=2)
+
+        # Подготовка таблицы: строки — лаги, колонки — r, R², Значимость
+        table = doc.add_table(rows=1, cols=4)
+        table.style = 'Table Grid'
+
+        # Заголовки
+        hdr_cells = table.rows[0].cells
+        hdr_cells[0].text = "Лаг"
+        hdr_cells[1].text = "Корреляция (r)"
+        hdr_cells[2].text = "Детерминация (R²)"
+        hdr_cells[3].text = "Значимо (t-test)"
+
+        for lag_label in corr_df.columns:
+            row = table.add_row().cells
+            row[0].text = lag_label
+
+            r = corr_df.loc[x_var, lag_label]
+            r2 = r2_df.loc[x_var, lag_label]
+            signif = significance_df.loc[x_var, lag_label]
+
+            row[1].text = str(r) if pd.notna(r) else ""
+            row[2].text = str(r2) if pd.notna(r2) else ""
+            row[3].text = "Да" if signif else "Нет"
+
+        doc.add_paragraph()
+
+
 def create(df):
 
     cr = CheckRandom()
@@ -356,4 +430,52 @@ def create(df):
     export_correlation_by_clusters(df_clustered, doc)
     # Сохраняем
     doc.save("stat_report.docx")
+    print("Отчёт сохранён в stat_report.docx")
+
+
+
+def create2task(df):
+
+    cr = CheckRandom()
+    co = CheckOutliers()
+    # Сначала получаем результаты тестов:
+    pirs_df = cr.check_pirs(df)
+    median_df = cr.check_median(df)
+    cr.build_hist(df)
+    # Создаём документ и добавляем главы
+    doc = Document()
+    doc.add_heading("Статистический отчёт", level=0)
+    out = co.check_quantiles(df)
+    out2 = co.check_sigmas(df)
+    out3 = co.check_grabbs(df)
+
+    # Корреляционный анализ
+
+    export_pirs_report(pirs_df, doc)
+    export_median_report(median_df, doc)
+    export_histograms_report(doc)
+    export_outliers_report(out, doc)
+    export_sigmas_report(out2, doc)
+    export_grabbs_report(out3, doc)
+
+    corr_df, r2_df, significance_df = Autocorrel.check_lags(df, lag_count=25, y_col="Y", alpha=0.05)
+    export_lags_report(corr_df, r2_df, significance_df, doc)
+
+    shifted_df = Autocorrel.shift_by_significant_lags(df, corr_df, significance_df, y_col="Y")
+    corr_matrix, r2_matrix, t_matrix, significance_matrix = CheckCorell.check_correlation(shifted_df)
+
+    export_correlation_report(corr_matrix, r2_matrix, t_matrix, significance_matrix, doc)
+    z = CheckCorell.select_features_for_y(shifted_df, "Y", significance_matrix)
+    models = CheckCorell.build_multiple_regression_model_3x(shifted_df, "x2", "x3", "x4", 'Y')
+    export_multiple_regression_report_3x(models,"x2", "x3", "x4", 'Y', doc)
+
+    # if len(z) == 2:
+    #
+    #     models = CheckCorell.build_multiple_regression_model(shifted_df, z[0], z[1], 'Y')
+    #     export_multiple_regression_report(models, z[0], z[1], "Y", doc)
+    # else:
+    #     models = CheckCorell.build_regression_models(shifted_df, significance_matrix, "Y")
+    #     export_regression_report(models, doc)
+
+    doc.save("stat_report_2_task.docx")
     print("Отчёт сохранён в stat_report.docx")

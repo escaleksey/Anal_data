@@ -1,13 +1,14 @@
 import pandas as pd
-
 import matplotlib
-matplotlib.use('TkAgg')  # или 'Qt5Agg'
 from matplotlib import pyplot as plt
 import numpy as np
 from utils import CheckOutliers, CheckLength, CheckRandom, Normalizer, k_means_clustering, CheckCorell
-
-
 from scipy.stats import chi2, norm, expon
+
+
+matplotlib.use('TkAgg')  # или 'Qt5Agg'
+
+
 
 # фиксируем сид для воспроизводимости
 np.random.seed(42)
@@ -16,9 +17,9 @@ np.random.seed(42)
 n = 500
 
 # создаём DataFrame
-df = pd.read_csv("kr.csv")
+df = pd.read_csv("kr2.csv")
 
- # Печать уникальных значений в Y
+# Печать уникальных значений в Y
 co = CheckOutliers()
 cl = CheckLength()
 # co.check_sigmas(df)
@@ -27,11 +28,13 @@ cl = CheckLength()
 
 cr = CheckRandom()
 
-#res = CheckCorell().check_correlation(df)
-#res2 = CheckCorell().build_regression_models(df, res[-1])
-from create_word import create
-
-create(df)
+# res = CheckCorell().check_correlation(df)
+# res2 = CheckCorell().build_regression_models(df, res[-1])
 
 
+from create_word import create, create2task
 
+# create(df)
+
+
+create2task(df)
